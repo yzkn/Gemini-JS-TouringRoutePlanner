@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="utf-8">
+    <title>Motorcycle Route Planner - Large Bike & 125cc Support</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+
+    <!-- Libraries -->
+    <script src="https://unpkg.com/maplibre-gl@3.x/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@3.x/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/pmtiles@2.10.0/dist/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            color: #333;
+        }
+
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+
+        /* UI Panels */
+        .sidebar {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 100;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+            width: 260px;
+        }
+
+        .info-panel {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px 25px;
+            border-radius: 30px;
+            display: none;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            width: auto;
+            min-width: 300px;
+            text-align: center;
+            border: 1px solid #ddd;
+        }
+
+        h2 {
+            margin: 0 0 15px 0;
+            font-size: 18px;
+            color: #d9534f;
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 8px;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .radio-group {
+            display: flex;
+            gap: 10px;
+            flex-direction: column;
+        }
+
+        .radio-item {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .radio-item input {
+            margin-right: 8px;
+        }
+
+        .btn-clear {
+            width: 100%;
+            padding: 8px;
+            background: #666;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .btn-clear:hover {
+            background: #444;
+        }
+
+        /* Status colors */
+        .alert {
+            color: #d9534f;
+            font-weight: bold;
+        }
+
+        .safe {
+            color: #5cb85c;
+            font-weight: bold;
+        }
+
+        /* Custom Marker */
+        .marker-num {
+            background: #d9534f;
+            color: white;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            text-align: center;
+            line-height: 24px;
+            font-size: 12px;
+            font-weight: bold;
+            border: 2px solid white;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="sidebar">
+        <h2>🏍️ Route Planner</h2>
+
+        <div class="control-group">
+            <label>車両設定（排気量）</label>
+            <div class="radio-group">
+                <label class="radio-item"><input type="radio" name="cc" value="125"> 125cc以下 (原付二種)</label>
+                <label class="radio-item"><input type="radio" name="cc" value="400" checked> 大型・普通自動二輪</label>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>道路制約</label>
+            <label class="radio-item" style="font-weight: normal;">
+                <input type="checkbox" id="allowNarrow"> 3m未満の狭小路を許可
+            </label>
+        </div>
+
+        <button class="btn-clear" onclick="clearAll()">ルートをリセット</button>
+        <p style="font-size: 11px; color: #888; margin-top: 15px;">
+            地図をクリックして地点を追加。マーカーをドラッグして移動できます。
+        </p>
+    </div>
+
+    <div id="info" class="info-panel"></div>
+    <div id="map"></div>
+
+    <script>
+        // --- 初期化 ---
+        let protocol = new pmtiles.Protocol();
+        maplibregl.addProtocol("pmtiles", protocol.tile);
+
+        const map = new maplibregl.Map({
+            container: 'map',
+            style: 'https://tile.openstreetmap.jp/styles/osm-bright-ja/style.json',
+            center: [139.14, 35.45], // 神奈川県周辺
+            zoom: 11
+        });
+
+        let waypoints = []; // {id, marker, coords}
+        const PMTILES_URL = "data/japan_roads.pmtiles"; // 生成したタイルのパス
+
+        map.on('load', () => {
+            // PMTilesソース追加
+            map.addSource('bike-roads', {
+                type: 'vector',
+                url: `pmtiles://${location.origin}/${PMTILES_URL}`
+            });
+
+            // 判定用透明レイヤー（吸着に使用）
+            map.addLayer({
+                'id': 'road-ref',
+                'type': 'line',
+                'source': 'bike-roads',
+                'source-layer': 'roads',
+                'paint': { 'line-width': 15, 'line-color': 'rgba(0,0,0,0)' }
+            });
+
+            // 視覚用レイヤー（急勾配や規制路を薄く表示）
+            map.addLayer({
+                'id': 'road-viz',
+                'type': 'line',
+                'source': 'bike-roads',
+                'source-layer': 'roads',
+                'paint': {
+                    'line-color': [
+                        'case',
+                        ['==', ['get', 'limit'], 1], '#ff0000', // 二輪禁止
+                        ['>', ['get', 'grad'], 15], '#ffae00',  // 急勾配
+                        '#ccc'
+                    ],
+                    'line-width': 1,
+                    'line-opacity': 0.4
+                }
+            });
+
+            // 経路表示用
+            map.addSource('route-path', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addLayer({
+                'id': 'route-line',
+                'type': 'line',
+                'source': 'route-path',
+                'layout': { 'line-join': 'round', 'line-cap': 'round' },
+                'paint': { 'line-color': '#0070f3', 'line-width': 6, 'line-opacity': 0.8 }
+            });
+        });
+
+        // --- メインロジック ---
+
+        // 地図クリック時
+        map.on('click', (e) => {
+            const snapped = getSmartSnappedPoint(e.lngLat);
+            if (snapped) {
+                addWaypoint(snapped);
+            } else {
+                // 吸着しなかった場合はそのまま追加（直線モード的挙動）
+                addWaypoint([e.lngLat.lng, e.lngLat.lat]);
+            }
+        });
+
+        function addWaypoint(coords) {
+            const id = Date.now();
+            const el = document.createElement('div');
+            el.className = 'marker-num';
+            el.innerHTML = waypoints.length + 1;
+
+            const marker = new maplibregl.Marker({ element: el, draggable: true })
+                .setLngLat(coords)
+                .addTo(map);
+
+            // ドラッグ終了時の再吸着
+            marker.on('dragend', () => {
+                const currentLngLat = marker.getLngLat();
+                const resnapped = getSmartSnappedPoint(currentLngLat);
+                const finalCoords = resnapped || [currentLngLat.lng, currentLngLat.lat];
+
+                marker.setLngLat(finalCoords);
+                const wp = waypoints.find(w => w.id === id);
+                wp.coords = finalCoords;
+                updateRoute();
+            });
+
+            waypoints.push({ id, marker, coords });
+            updateRoute();
+        }
+
+        // スマート吸着
+        function getSmartSnappedPoint(lngLat) {
+            const point = map.project(lngLat);
+            const features = map.queryRenderedFeatures([
+                [point.x - 15, point.y - 15],
+                [point.x + 15, point.y + 15]
+            ], { layers: ['road-ref'] });
+
+            if (features.length === 0) return null;
+
+            const cc = document.querySelector('input[name="cc"]:checked').value;
+            const allowNarrow = document.getElementById('allowNarrow').checked;
+
+            // 車両設定に合致する道路を抽出
+            const validRoads = features.filter(f => {
+                const p = f.properties;
+                if (p.limit === 1) return false; // 二輪禁止
+                if (cc <= 125 && p.m_way === 1) return false; // 125cc以下高速不可
+                if (!allowNarrow && p.width === 1) return false; // 狭小路不可
+                return true;
+            });
+
+            if (validRoads.length === 0) return null;
+
+            const clickedPoint = turf.point([lngLat.lng, lngLat.lat]);
+            const snapped = turf.nearestPointOnLine(validRoads[0], clickedPoint);
+            return snapped.geometry.coordinates;
+        }
+
+        // OSRM経路探索
+        async function updateRoute() {
+            if (waypoints.length < 2) return;
+
+            const coordsStr = waypoints.map(w => `${w.coords[0]},${w.coords[1]}`).join(';');
+            const url = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?geometries=geojson&overview=full`;
+
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                if (data.code !== 'Ok') return;
+
+                const route = data.routes[0];
+                map.getSource('route-path').setData({
+                    type: 'Feature',
+                    geometry: route.geometry
+                });
+
+                showInfo(route);
+            } catch (err) {
+                console.error("Routing error:", err);
+            }
+        }
+
+        // 情報パネル表示
+        function showInfo(route) {
+            const info = document.getElementById('info');
+            info.style.display = 'block';
+
+            const dist = (route.distance / 1000).toFixed(1);
+            const dur = Math.round(route.duration / 60);
+
+            // 簡易診断（PMTilesの属性から）
+            const bbox = turf.bbox(route.geometry);
+            const sw = map.project([bbox[0], bbox[1]]);
+            const ne = map.project([bbox[2], bbox[3]]);
+            const roadFeatures = map.queryRenderedFeatures([sw, ne], { layers: ['road-ref'] });
+
+            const hasSteep = roadFeatures.some(f => f.properties.grad > 15);
+
+            info.innerHTML = `
+            <strong>距離: ${dist} km / 時間: ${dur} 分</strong><br>
+            ${hasSteep ? '<span class="alert">⚠️ 経路内に急勾配(15%+)が含まれています</span>' : '<span class="safe">✅ 大型バイク走行適正：良好</span>'}
+        `;
+        }
+
+        function clearAll() {
+            waypoints.forEach(w => w.marker.remove());
+            waypoints = [];
+            map.getSource('route-path').setData({ type: 'FeatureCollection', features: [] });
+            document.getElementById('info').style.display = 'none';
+        }
+    </script>
+
+</body>
+
+</html>

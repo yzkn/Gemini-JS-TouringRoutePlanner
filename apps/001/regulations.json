@@ -1,0 +1,103 @@
+{
+    "version": "2024.01",
+    "updated_at": "2024-05-20T10:00:00Z",
+    "description": "二輪車通行禁止・排気量規制・冬季閉鎖の補完データ",
+    "prohibited_points": [
+        {
+            "id": "REG-001",
+            "name": "奥多摩周遊道路",
+            "lat": 35.7865,
+            "lon": 139.0234,
+            "type": "displacement_restriction",
+            "restriction": {
+                "is_all_day": false,
+                "prohibited_cc_max": 125,
+                "schedule": "土日祝のみ通行禁止（一般原付のみ等、区間により異なる）",
+                "months": [
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10,
+                    11,
+                    12
+                ]
+            },
+            "comment": "特定区間の排気量制限を想定"
+        },
+        {
+            "id": "REG-002",
+            "name": "筑波山周辺道路",
+            "lat": 36.2145,
+            "lon": 140.1032,
+            "type": "no_bikes",
+            "restriction": {
+                "is_all_day": false,
+                "schedule": "19:00 - 08:00 二輪車通行禁止",
+                "hours": [
+                    19,
+                    20,
+                    21,
+                    22,
+                    23,
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7
+                ]
+            },
+            "comment": "夜間二輪車通行禁止区間"
+        },
+        {
+            "id": "REG-003",
+            "name": "国道1号 某バイパス",
+            "lat": 35.1234,
+            "lon": 138.5678,
+            "type": "displacement_restriction",
+            "restriction": {
+                "is_all_day": true,
+                "prohibited_cc_max": 125
+            },
+            "comment": "125cc以下通行不可のバイパス入口"
+        },
+        {
+            "id": "REG-004",
+            "name": "志賀草津道路",
+            "lat": 36.6543,
+            "lon": 138.5432,
+            "type": "winter_closure",
+            "restriction": {
+                "is_all_day": true,
+                "months": [
+                    11,
+                    12,
+                    1,
+                    2,
+                    3,
+                    4
+                ]
+            },
+            "comment": "11月中旬〜4月下旬まで冬季閉鎖"
+        }
+    ],
+    "user_reports": [
+        {
+            "report_id": "USER-12345",
+            "lat": 35.5000,
+            "lon": 139.6000,
+            "type": "no_bikes",
+            "status": "pending_verification",
+            "reported_at": "2024-05-18",
+            "comment": "最近二輪通行止め看板が設置されました"
+        }
+    ]
+}
